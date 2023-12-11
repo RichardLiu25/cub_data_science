@@ -1,0 +1,180 @@
+---
+title: "NYPD Shooting incident analysis"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Import the NYPD shooting incident data
+
+
+```{r import_csv, echo=TRUE}
+library(tidyverse)
+library(lubridate)
+filename = "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+nypd <- read_csv(filename)
+nypd
+```
+
+Merge OCCUR_DATE and OCCUR_TIME into "dttm" format
+```{r merge_date_time, echo=TRUE}
+nypd <- nypd %>%
+    unite(datetime, 2:3, sep = " ", remove = FALSE) %>%
+    mutate(
+        datetime = as.POSIXct(datetime, format = "%m/%d/%Y %H:%M:%S")) %>%
+    ungroup()
+nypd %>%
+    select(datetime, OCCUR_DATE, OCCUR_TIME, everything())
+```
+
+#### Get insight per Borough
+
+
+```{r get_boro_stat, echo=TRUE}
+boro_stat <- nypd %>%
+    group_by(BORO) %>%
+    summarise(count=n()) %>%
+    select(BORO, count) %>%
+    ungroup()
+boro_stat
+```
+
+```{r draw_boro_stat_pie, echo=TRUE}
+slices <- boro_stat$count
+boro <- boro_stat$BORO
+percent <- round(slices/sum(slices)*100)
+boro <- paste(boro, percent)
+boro <- paste(boro, "%", sep="")
+pie(slices, labels=boro, main="Pie Chart of Boroughs")
+```
+
+As we can wee, Brooklyn has the the most shooting incidents (40%), followed by
+Bornx (29%).
+
+
+#### Check the incidents over the years
+
+
+```{r generate_year_stat, echo=TRUE}
+nypd <- nypd %>% mutate(OCCUR_DATE=mdy(OCCUR_DATE))
+
+nypd_year <- nypd %>%
+    group_by(datefloor=lubridate::floor_date(OCCUR_DATE, "year")) %>%
+    summarise(count=n()) %>%
+    mutate(year=format(datefloor, format="%Y")) %>%
+    select(year, count) %>%
+    ungroup()
+nypd_year
+```
+```{r draw_year_stat, echo=TRUE}
+nypd_year %>%
+  ggplot(aes(x=year, y=count, fill=count)) +
+  geom_bar(width=0.8, stat="identity") +
+  labs(title = "NY shooting incidents over the years", y = NULL)
+```
+
+During 2017-2019, the shooting incidents per year were below 1000. But incidents
+jumped to nearly doubled (close to 2000) in year 2020.
+
+#### Check incidents in each hour
+
+
+```{r generate_hour_stat, echo=TRUE}
+nypd_hour_stat <- nypd %>%
+    mutate(hour = format(datetime, "%H")) %>%
+    group_by(hour) %>%
+    summarise(count=n()) %>%
+    select(hour, count) %>%
+    ungroup()
+print(nypd_hour_stat, n = Inf)
+```
+
+```{r draw_hour_stat, echo=TRUE}
+nypd_hour_stat %>%
+  ggplot(aes(x=hour, y=count, fill=count)) +
+  geom_bar(width=0.8, stat="identity") +
+  labs(title = "NY shooting incidents over each hour of the day", y = NULL)
+```
+
+As showed above, the peak time of shooting incidents was between 22:00 ~ 02:00.
+The hour with the highest incidents was 23:00 - 00:00.
+
+#### Check the class of location
+
+
+```{r check_loc_class_data, echo=TRUE}
+nypd %>%
+    group_by(LOC_CLASSFCTN_DESC) %>%
+    summarise(count=n()) %>%
+    select(LOC_CLASSFCTN_DESC, count) %>%
+    ungroup()
+```
+
+Seems we have lots of NAs... drop them first
+
+```{r get_loc_class_data, echo=TRUE}
+nypd_loc_class <- nypd %>%
+    drop_na(LOC_CLASSFCTN_DESC) %>%
+    group_by(LOC_CLASSFCTN_DESC) %>%
+    summarise(count=n()) %>%
+    select(LOC_CLASSFCTN_DESC, count) %>%
+    ungroup()
+nypd_loc_class
+```
+
+```{r draw_loc_class_pie, echo=TRUE}
+slices <- nypd_loc_class$count
+loc_class <- nypd_loc_class$LOC_CLASSFCTN_DESC
+percent <- round(slices/sum(slices)*100)
+loc_class <- paste(loc_class, percent)
+loc_class <- paste(loc_class, "%", sep="")
+pie(slices, labels=loc_class, main="Pie Chart of Location class", cex=0.8)
+```
+
+More than half the incidents happened in the street!
+
+#### Check Inside and Outside incidents
+
+
+```{r check_in_out_state, echo=TRUE}
+nypd %>%
+     drop_na(LOC_OF_OCCUR_DESC) %>%
+     group_by(LOC_OF_OCCUR_DESC) %>%
+     summarise(count=n()) %>%
+     select(LOC_OF_OCCUR_DESC, count) %>%
+     ungroup()
+```
+
+Outside is the majority case.
+
+#### Check the victim gender data
+
+
+```{r get_victim_gender, echo=TRUE}
+nypd_victim_gender <- nypd %>%
+    group_by(VIC_SEX) %>%
+    summarise(count=n()) %>%
+    select(VIC_SEX, count) %>%
+    ungroup()
+nypd_victim_gender
+```
+
+```{r draw_victim_gendor_pie, echo=TRUE}
+slices <- nypd_victim_gender$count
+vic_sex <- nypd_victim_gender$VIC_SEX
+percent <- round(slices/sum(slices)*100)
+vic_sex <- paste(vic_sex, percent)
+vic_sex <- paste(vic_sex, "%", sep="")
+pie(slices, labels=vic_sex, main="Pie Chart of the gender of the victim")
+```
+
+As showed above, Male as victim dominates the cases(90%).
+
+```{r sessioninfo, echo=TRUE}
+sessionInfo()
+```
