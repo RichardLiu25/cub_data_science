@@ -2,16 +2,23 @@
 title: "NYPD Shooting incident analysis"
 date: "`r Sys.Date()`"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-### Import the NYPD shooting incident data
+### Data Source ###
 
+The data is from https://catalog.data.gov/dataset/nypd-shooting-incident-data-historic.
+It lists of every shooting incident that occurred in New York City going back to 2006
+through the end of the previous calendar year (2022). According to the website, This
+data is manually extracted every quarter and reviewed by the Office of Management
+Analysis and Planning before being posted on the NYPD website.
+
+### Import the NYPD shooting incident data
 
 ```{r import_csv, echo=TRUE}
 library(tidyverse)
@@ -21,7 +28,9 @@ nypd <- read_csv(filename)
 nypd
 ```
 
-Merge OCCUR_DATE and OCCUR_TIME into "dttm" format
+### Transform the data
+
+1) Merge OCCUR_DATE and OCCUR_TIME into "dttm" format:
 ```{r merge_date_time, echo=TRUE}
 nypd <- nypd %>%
     unite(datetime, 2:3, sep = " ", remove = FALSE) %>%
@@ -32,9 +41,16 @@ nypd %>%
     select(datetime, OCCUR_DATE, OCCUR_TIME, everything())
 ```
 
-#### Get insight per Borough
+2) Keep only the columns we are interested in for this analysis:
+```{r keep_needed_columns, echo=TRUE}
+nypd <- nypd %>%
+    select(datetime, BORO, LOC_OF_OCCUR_DESC, LOC_CLASSFCTN_DESC, VIC_AGE_GROUP, VIC_SEX, VIC_RACE)
+```
 
 
+### Analyze the data
+
+#### 1) Check the total number of incidents in each borough
 ```{r get_boro_stat, echo=TRUE}
 boro_stat <- nypd %>%
     group_by(BORO) %>%
@@ -53,20 +69,17 @@ boro <- paste(boro, "%", sep="")
 pie(slices, labels=boro, main="Pie Chart of Boroughs")
 ```
 
-As we can wee, Brooklyn has the the most shooting incidents (40%), followed by
-Bornx (29%).
+As we can see, Brooklyn had the highest number of shooting incidents, accounting
+for 40% of all cases, followed by the Bronx, which recorded 29% of the incidents.
 
-
-#### Check the incidents over the years
+#### 2) Check the number of incidents over the years
 
 
 ```{r generate_year_stat, echo=TRUE}
-nypd <- nypd %>% mutate(OCCUR_DATE=mdy(OCCUR_DATE))
-
 nypd_year <- nypd %>%
-    group_by(datefloor=lubridate::floor_date(OCCUR_DATE, "year")) %>%
+    mutate(year = format(datetime, "%Y")) %>%
+    group_by(year) %>%
     summarise(count=n()) %>%
-    mutate(year=format(datefloor, format="%Y")) %>%
     select(year, count) %>%
     ungroup()
 nypd_year
@@ -78,11 +91,13 @@ nypd_year %>%
   labs(title = "NY shooting incidents over the years", y = NULL)
 ```
 
-During 2017-2019, the shooting incidents per year were below 1000. But incidents
-jumped to nearly doubled (close to 2000) in year 2020.
+From 2006 to 2019, the situation showed improvement, particularly from 2017 to 2019
+when the annual number of incidents remained below 1000. However, in 2020, the figure
+almost doubled compared to the previous year, likely influenced significantly by
+the COVID-19 pandemic.
 
-#### Check incidents in each hour
 
+#### 3) Check the number of incidents for each hour of the day
 
 ```{r generate_hour_stat, echo=TRUE}
 nypd_hour_stat <- nypd %>%
@@ -101,11 +116,13 @@ nypd_hour_stat %>%
   labs(title = "NY shooting incidents over each hour of the day", y = NULL)
 ```
 
-As showed above, the peak time of shooting incidents was between 22:00 ~ 02:00.
-The hour with the highest incidents was 23:00 - 00:00.
+As showed above, the period with the highest number of shooting incidents was
+between 23:00 and 00:00.
 
-#### Check the class of location
 
+#### 4) Check incidents for different types of locations
+
+By checking the data first, seems lots of cases did not have exact location information.
 
 ```{r check_loc_class_data, echo=TRUE}
 nypd %>%
@@ -115,7 +132,7 @@ nypd %>%
     ungroup()
 ```
 
-Seems we have lots of NAs... drop them first
+So I have to drop these NAs first before generating statistical data:
 
 ```{r get_loc_class_data, echo=TRUE}
 nypd_loc_class <- nypd %>%
@@ -136,24 +153,11 @@ loc_class <- paste(loc_class, "%", sep="")
 pie(slices, labels=loc_class, main="Pie Chart of Location class", cex=0.8)
 ```
 
-More than half the incidents happened in the street!
+The pie chart shows more than half the incidents happened in the street, followed by
+the second-highest in residential houses!
 
-#### Check Inside and Outside incidents
 
-
-```{r check_in_out_state, echo=TRUE}
-nypd %>%
-     drop_na(LOC_OF_OCCUR_DESC) %>%
-     group_by(LOC_OF_OCCUR_DESC) %>%
-     summarise(count=n()) %>%
-     select(LOC_OF_OCCUR_DESC, count) %>%
-     ungroup()
-```
-
-Outside is the majority case.
-
-#### Check the victim gender data
-
+#### 5) Retrieve statistical data based on the gender of the victims
 
 ```{r get_victim_gender, echo=TRUE}
 nypd_victim_gender <- nypd %>%
@@ -173,7 +177,73 @@ vic_sex <- paste(vic_sex, "%", sep="")
 pie(slices, labels=vic_sex, main="Pie Chart of the gender of the victim")
 ```
 
-As showed above, Male as victim dominates the cases(90%).
+As showed above, the majority of shooting victims were male, constituting 90% of
+the cases.
+
+### Create model for better understanding the data
+
+1) Generate the male victim incidents for each year
+
+```{r get_male_vic_data, echo=TRUE}
+nypd_year_vic_male <- nypd %>%
+    filter(VIC_SEX=='M') %>%
+    mutate(year = format(datetime, "%Y")) %>%
+    group_by(year) %>%
+    summarise(vic_male_count=n()) %>%
+    select(year, vic_male_count) %>%
+    ungroup()
+nypd_year_vic_male
+```
+```{r join_year_data, echo=TRUE}
+nypd_year_stat <- nypd_year %>%
+    full_join(nypd_year_vic_male)
+nypd_year_stat
+```
+
+2) Create the linear model
+
+```{r create_model, echo=TRUE}
+mod <- lm(vic_male_count ~ count, data=nypd_year_stat)
+summary(mod)
+```
+
+3) Predict and plot for male victim incidents
+```{r predit_male, echo=TRUE}
+male_pred <- nypd_year_stat %>% mutate(pred = predict(mod))
+
+male_pred %>% ggplot() +
+    geom_point(aes(x=count, y=vic_male_count), color="blue") +
+    geom_point(aes(x=count, y=pred), color="red") +
+    geom_line(aes(x=count, y=pred), color="red")
+```
+
+As you can observe, the actual data aligns very well with this model. Not only in
+average, male incidents represented 90% of the total cases, but also it approached
+90% consistently across each year.
+
+### Conclusion:
+
+From 2006 to 2019, the situation regarding shooting incidents showed improvement
+year by year. However, with the onset of the COVID-19 pandemic in 2020, the number
+nearly doubled compared to the previous year, and it has remained at that elevated
+level in subsequent years. Upon conducting some research, it appears that increased
+firearm sales and deteriorating mental health in individuals are contributing to
+the spike in cases. It is imperative for New York City to address these issues
+promptly.
+
+Moreover, a significant proportion of these incidents occurred during the night
+and outdoors. Therefore, individuals are advised to refrain from going out in the
+late evening to ensure their safety.
+
+Among all the boroughs, Brooklyn recorded the highest number of shooting incidents.
+
+### Possible bias:
+
+When conducting statistical analysis on the incidents in each borough, population
+was not taken into account. While Brooklyn had the highest number of shooting
+incidents, it also had the largest population. If population was factored in, it
+appears that the Bronx had the highest rate of shooting incidents per capita.
+
 
 ```{r sessioninfo, echo=TRUE}
 sessionInfo()
